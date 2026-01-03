@@ -2,18 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   TrendingUp, 
-  TrendingDown, 
   MapPin, 
   Filter,
   Bell,
   Star,
-  ArrowUpRight
+  Loader2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import DashboardNav from '@/components/DashboardNav';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 import { 
   Select,
   SelectContent,
@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue 
 } from '@/components/ui/select';
-import { generateMockMandiPrices, generatePriceTrend, cropTypes, indianStates } from '@/lib/mockData';
+import { cropTypes, indianStates } from '@/lib/mockData';
 import { MandiPrice } from '@/lib/types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -38,6 +38,8 @@ const Markets: React.FC = () => {
   const [trendDays, setTrendDays] = useState(7);
   const [targetPrice, setTargetPrice] = useState('');
   const [priceAlertSet, setPriceAlertSet] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [bestMarketRecommendation, setBestMarketRecommendation] = useState('');
 
   useEffect(() => {
     if (!user) {
@@ -47,18 +49,47 @@ const Markets: React.FC = () => {
 
   useEffect(() => {
     loadPrices();
-  }, [selectedCrop, selectedState]);
+  }, [selectedCrop, selectedState, trendDays]);
 
-  useEffect(() => {
-    if (prices.length > 0) {
-      const trend = generatePriceTrend(prices[0].modalPrice, trendDays);
-      setPriceTrend(trend);
+  const loadPrices = async () => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('mandi-prices', {
+        body: { 
+          crop: selectedCrop, 
+          state: selectedState,
+          lat: user?.latitude,
+          lon: user?.longitude,
+          days: trendDays
+        }
+      });
+
+      if (error) {
+        console.error('Mandi prices error:', error);
+        toast({
+          title: 'Error loading prices',
+          description: 'Could not fetch market prices',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      if (data?.prices) {
+        setPrices(data.prices);
+      }
+
+      if (data?.priceTrend) {
+        setPriceTrend(data.priceTrend);
+      }
+
+      if (data?.bestMarket) {
+        setBestMarketRecommendation(data.bestMarket.recommendation);
+      }
+    } catch (err) {
+      console.error('Failed to load prices:', err);
+    } finally {
+      setIsLoading(false);
     }
-  }, [prices, trendDays]);
-
-  const loadPrices = () => {
-    const newPrices = generateMockMandiPrices(selectedCrop, selectedState);
-    setPrices(newPrices);
   };
 
   const bestMarket = prices.length > 0 ? prices.reduce((best, current) => {
@@ -67,7 +98,7 @@ const Markets: React.FC = () => {
     return currentScore > bestScore ? current : best;
   }, prices[0]) : null;
 
-  const handleSetPriceAlert = () => {
+  const handleSetPriceAlert = async () => {
     if (!targetPrice || isNaN(Number(targetPrice))) {
       toast({
         title: 'Invalid price',
@@ -77,6 +108,7 @@ const Markets: React.FC = () => {
       return;
     }
 
+    // In a full implementation, this would save to the database
     setPriceAlertSet(true);
     toast({
       title: 'Price alert set!',
@@ -94,6 +126,7 @@ const Markets: React.FC = () => {
           <h1 className="text-2xl lg:text-3xl font-bold flex items-center gap-2">
             <TrendingUp className="text-primary" />
             Market Prices
+            <span className="text-xs bg-success/10 text-success px-2 py-1 rounded-full ml-2">Live Data</span>
           </h1>
           <p className="text-muted-foreground">Track mandi prices and find the best market to sell</p>
         </div>
@@ -103,6 +136,7 @@ const Markets: React.FC = () => {
           <div className="flex items-center gap-2 mb-4">
             <Filter size={20} className="text-muted-foreground" />
             <span className="font-medium">Filters</span>
+            {isLoading && <Loader2 className="animate-spin ml-2" size={16} />}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -163,6 +197,9 @@ const Markets: React.FC = () => {
                     <p className="font-medium">{bestMarket.distance}km away</p>
                   </div>
                 </div>
+                {bestMarketRecommendation && (
+                  <p className="mt-4 text-sm bg-card/50 p-3 rounded-lg">{bestMarketRecommendation}</p>
+                )}
               </div>
             </div>
           )}
@@ -171,43 +208,49 @@ const Markets: React.FC = () => {
           <div className="lg:col-span-2">
             <div className="agro-card">
               <h3 className="font-semibold text-lg mb-4">All Markets in {selectedState}</h3>
-              <div className="space-y-3">
-                {prices.map((price, index) => (
-                  <div 
-                    key={index}
-                    className={`flex items-center justify-between p-4 rounded-xl transition-all ${
-                      price.market === bestMarket?.market 
-                        ? 'bg-primary/10 border-2 border-primary/30' 
-                        : 'bg-secondary/50 hover:bg-secondary'
-                    }`}
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className="p-2 bg-card rounded-lg">
-                        <MapPin size={20} className="text-primary" />
+              {isLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="animate-spin" size={32} />
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {prices.map((price, index) => (
+                    <div 
+                      key={index}
+                      className={`flex items-center justify-between p-4 rounded-xl transition-all ${
+                        price.market === bestMarket?.market 
+                          ? 'bg-primary/10 border-2 border-primary/30' 
+                          : 'bg-secondary/50 hover:bg-secondary'
+                      }`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="p-2 bg-card rounded-lg">
+                          <MapPin size={20} className="text-primary" />
+                        </div>
+                        <div>
+                          <p className="font-semibold flex items-center gap-2">
+                            {price.market}
+                            {price.market === bestMarket?.market && (
+                              <span className="text-xs bg-accent text-accent-foreground px-2 py-0.5 rounded-full">
+                                Best
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {price.district} • {price.distance}km
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-semibold flex items-center gap-2">
-                          {price.market}
-                          {price.market === bestMarket?.market && (
-                            <span className="text-xs bg-accent text-accent-foreground px-2 py-0.5 rounded-full">
-                              Best
-                            </span>
-                          )}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {price.district} • {price.distance}km
+                      <div className="text-right">
+                        <p className="text-xl font-bold text-primary">₹{price.modalPrice}</p>
+                        <p className="text-xs text-muted-foreground">
+                          ₹{price.minPrice} - ₹{price.maxPrice}
                         </p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-xl font-bold text-primary">₹{price.modalPrice}</p>
-                      <p className="text-xs text-muted-foreground">
-                        ₹{price.minPrice} - ₹{price.maxPrice}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 

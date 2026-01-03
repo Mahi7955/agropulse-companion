@@ -14,7 +14,162 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      expenses: {
+        Row: {
+          amount: number
+          created_at: string
+          description: string | null
+          expense_date: string
+          expense_type: string
+          farm_id: string
+          id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          description?: string | null
+          expense_date?: string
+          expense_type: string
+          farm_id: string
+          id?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          description?: string | null
+          expense_date?: string
+          expense_type?: string
+          farm_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expenses_farm_id_fkey"
+            columns: ["farm_id"]
+            isOneToOne: false
+            referencedRelation: "farms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      farmers: {
+        Row: {
+          created_at: string
+          district: string | null
+          id: string
+          latitude: number | null
+          longitude: number | null
+          name: string
+          phone: string | null
+          state: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          district?: string | null
+          id?: string
+          latitude?: number | null
+          longitude?: number | null
+          name: string
+          phone?: string | null
+          state?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          district?: string | null
+          id?: string
+          latitude?: number | null
+          longitude?: number | null
+          name?: string
+          phone?: string | null
+          state?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      farms: {
+        Row: {
+          area_acres: number | null
+          created_at: string
+          crop_type: string
+          farmer_id: string
+          id: string
+          season: string
+          sowing_date: string
+          updated_at: string
+        }
+        Insert: {
+          area_acres?: number | null
+          created_at?: string
+          crop_type: string
+          farmer_id: string
+          id?: string
+          season: string
+          sowing_date: string
+          updated_at?: string
+        }
+        Update: {
+          area_acres?: number | null
+          created_at?: string
+          crop_type?: string
+          farmer_id?: string
+          id?: string
+          season?: string
+          sowing_date?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "farms_farmer_id_fkey"
+            columns: ["farmer_id"]
+            isOneToOne: false
+            referencedRelation: "farmers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      price_alerts: {
+        Row: {
+          created_at: string
+          crop: string
+          farmer_id: string
+          id: string
+          is_active: boolean | null
+          target_price: number
+          triggered_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          crop: string
+          farmer_id: string
+          id?: string
+          is_active?: boolean | null
+          target_price: number
+          triggered_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          crop?: string
+          farmer_id?: string
+          id?: string
+          is_active?: boolean | null
+          target_price?: number
+          triggered_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "price_alerts_farmer_id_fkey"
+            columns: ["farmer_id"]
+            isOneToOne: false
+            referencedRelation: "farmers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

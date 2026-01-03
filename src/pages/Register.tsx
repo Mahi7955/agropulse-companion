@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   MapPin, 
@@ -28,6 +28,7 @@ const Register: React.FC = () => {
   const [step, setStep] = useState(1);
   const [isLocating, setIsLocating] = useState(false);
   const [locationError, setLocationError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
   
   // Location data
   const [latitude, setLatitude] = useState<number | null>(null);
@@ -42,9 +43,15 @@ const Register: React.FC = () => {
   const [season, setSeason] = useState<'Kharif' | 'Rabi' | 'Zaid' | ''>('');
   const [farmSize, setFarmSize] = useState('');
   
-  const { user, updateProfile, updateFarmDetails } = useAuth();
+  const { user, authUser, updateProfile, updateFarmDetails, isLoading } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (!isLoading && !authUser) {
+      navigate('/signup');
+    }
+  }, [authUser, isLoading, navigate]);
 
   const detectLocation = () => {
     setIsLocating(true);
@@ -103,7 +110,7 @@ const Register: React.FC = () => {
     setStep(2);
   };
 
-  const handleStep2Submit = () => {
+  const handleStep2Submit = async () => {
     if (!cropType || !sowingDate || !season) {
       toast({
         title: 'All fields required',
@@ -113,24 +120,37 @@ const Register: React.FC = () => {
       return;
     }
 
-    const farmDetails: FarmDetails = {
-      id: `farm_${Date.now()}`,
-      farmerId: user?.id || '',
-      cropType,
-      sowingDate: new Date(sowingDate),
-      season: season as 'Kharif' | 'Rabi' | 'Zaid',
-      farmSize: parseFloat(farmSize) || 1,
-      farmSizeUnit: 'acres'
-    };
+    setIsSaving(true);
 
-    updateFarmDetails(farmDetails);
-    
-    toast({
-      title: 'Registration complete!',
-      description: 'Welcome to AgroPulse. Your smart farming journey begins now.',
-    });
-    
-    navigate('/dashboard');
+    try {
+      const farmDetails: FarmDetails = {
+        id: `farm_${Date.now()}`,
+        farmerId: user?.id || '',
+        cropType,
+        sowingDate: new Date(sowingDate),
+        season: season as 'Kharif' | 'Rabi' | 'Zaid',
+        farmSize: parseFloat(farmSize) || 1,
+        farmSizeUnit: 'acres'
+      };
+
+      await updateFarmDetails(farmDetails);
+      
+      toast({
+        title: 'Registration complete!',
+        description: 'Welcome to AgroPulse. Your smart farming journey begins now.',
+      });
+      
+      navigate('/dashboard');
+    } catch (error) {
+      console.error('Error saving farm details:', error);
+      toast({
+        title: 'Error saving data',
+        description: 'Please try again',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -349,9 +369,16 @@ const Register: React.FC = () => {
                 onClick={handleStep2Submit}
                 size="lg"
                 className="flex-1"
+                disabled={isSaving}
               >
-                Complete Registration
-                <ArrowRight size={20} />
+                {isSaving ? (
+                  <Loader2 className="animate-spin" size={20} />
+                ) : (
+                  <>
+                    Complete Registration
+                    <ArrowRight size={20} />
+                  </>
+                )}
               </Button>
             </div>
           </div>

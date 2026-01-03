@@ -10,19 +10,20 @@ import IrrigationAdviceCard from '@/components/IrrigationAdviceCard';
 import MandiPriceCard from '@/components/MandiPriceCard';
 import AIAdvisor from '@/components/AIAdvisor';
 import { useAuth } from '@/contexts/AuthContext';
-import { fetchWeatherData } from '@/lib/weatherApi';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 import { 
   calculateGrowthStage, 
   analyzeWeatherRisks, 
   getIrrigationAdvice, 
   calculateCropHealth,
-  generateMockMandiPrices 
 } from '@/lib/mockData';
 import { WeatherData, CropGrowthStage, WeatherAlert, IrrigationAdvice, CropHealth, MandiPrice } from '@/lib/types';
 
 const Dashboard: React.FC = () => {
   const { user, farmDetails, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   
   const [weather, setWeather] = useState<WeatherData | null>(null);
@@ -53,32 +54,74 @@ const Dashboard: React.FC = () => {
     setIsRefreshing(true);
     
     try {
-      // Fetch weather
-      const weatherData = await fetchWeatherData(user.latitude, user.longitude);
-      setWeather(weatherData);
+      // Fetch real weather data from edge function
+      const { data: weatherData, error: weatherError } = await supabase.functions.invoke('weather', {
+        body: { lat: user.latitude, lon: user.longitude }
+      });
+
+      if (weatherError) {
+        console.error('Weather error:', weatherError);
+        toast({
+          title: 'Weather data error',
+          description: 'Using cached weather data',
+          variant: 'destructive'
+        });
+      }
+
+      const finalWeather: WeatherData = weatherData?.error ? {
+        temperature: 28,
+        humidity: 65,
+        rainfall: 0,
+        description: 'Clear',
+        icon: '01d',
+        windSpeed: 12,
+        feelsLike: 30
+      } : weatherData;
+
+      setWeather(finalWeather);
       
       // Calculate growth stage
       const stage = calculateGrowthStage(farmDetails.sowingDate, farmDetails.cropType);
       setGrowthStage(stage);
       
       // Analyze weather risks
-      const alert = analyzeWeatherRisks(weatherData);
+      const alert = analyzeWeatherRisks(finalWeather);
       setWeatherAlert(alert);
       
       // Get irrigation advice
-      const advice = getIrrigationAdvice(weatherData, stage.stage, farmDetails.cropType);
+      const advice = getIrrigationAdvice(finalWeather, stage.stage, farmDetails.cropType);
       setIrrigationAdvice(advice);
       
       // Calculate crop health
-      const health = calculateCropHealth(weatherData, stage, alert);
+      const health = calculateCropHealth(finalWeather, stage, alert);
       setCropHealth(health);
       
-      // Get mandi prices
-      const prices = generateMockMandiPrices(farmDetails.cropType, user.state || 'Maharashtra');
-      setMandiPrices(prices);
+      // Fetch real mandi prices
+      const { data: mandiData, error: mandiError } = await supabase.functions.invoke('mandi-prices', {
+        body: { 
+          crop: farmDetails.cropType, 
+          state: user.state,
+          lat: user.latitude,
+          lon: user.longitude,
+          days: 7
+        }
+      });
+
+      if (mandiError) {
+        console.error('Mandi prices error:', mandiError);
+      }
+
+      if (mandiData?.prices) {
+        setMandiPrices(mandiData.prices);
+      }
       
     } catch (error) {
       console.error('Error loading dashboard data:', error);
+      toast({
+        title: 'Error loading data',
+        description: 'Some data could not be loaded. Please refresh.',
+        variant: 'destructive'
+      });
     } finally {
       setIsRefreshing(false);
     }

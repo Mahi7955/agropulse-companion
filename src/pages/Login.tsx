@@ -110,9 +110,9 @@ const Login: React.FC = () => {
           </div>
         </div>
 
-        {/* Demo Notice */}
+        {/* Real-time Data Notice */}
         <p className="text-center text-sm text-muted-foreground mt-6 animate-fade-in" style={{ animationDelay: '0.3s' }}>
-          Demo Mode: Create an account first, then login with those credentials
+          🌾 AgroPulse uses real-time weather and market data
         </p>
       </div>
     </div>

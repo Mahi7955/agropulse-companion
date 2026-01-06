@@ -14,6 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
+      apmc_prices: {
+        Row: {
+          arrival_date: string
+          commodity: string
+          created_at: string
+          district: string
+          grade: string | null
+          id: string
+          market: string
+          max_price: number
+          min_price: number
+          modal_price: number
+          state: string
+          variety: string | null
+        }
+        Insert: {
+          arrival_date: string
+          commodity: string
+          created_at?: string
+          district: string
+          grade?: string | null
+          id?: string
+          market: string
+          max_price: number
+          min_price: number
+          modal_price: number
+          state: string
+          variety?: string | null
+        }
+        Update: {
+          arrival_date?: string
+          commodity?: string
+          created_at?: string
+          district?: string
+          grade?: string | null
+          id?: string
+          market?: string
+          max_price?: number
+          min_price?: number
+          modal_price?: number
+          state?: string
+          variety?: string | null
+        }
+        Relationships: []
+      }
       expenses: {
         Row: {
           amount: number

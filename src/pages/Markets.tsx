@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   TrendingUp, 
@@ -6,7 +6,10 @@ import {
   Filter,
   Bell,
   Star,
-  Loader2
+  Loader2,
+  RefreshCw,
+  AlertCircle,
+  Upload
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,25 +24,53 @@ import {
   SelectTrigger,
   SelectValue 
 } from '@/components/ui/select';
-import { cropTypes, indianStates } from '@/lib/mockData';
-import { MandiPrice } from '@/lib/types';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+
+interface APMCPrice {
+  id: string;
+  market: string;
+  district: string;
+  state: string;
+  commodity: string;
+  variety: string;
+  grade: string;
+  modalPrice: number;
+  minPrice: number;
+  maxPrice: number;
+  arrivalDate: string;
+}
+
+interface FilterOptions {
+  districts: string[];
+  markets: string[];
+  commodities: string[];
+}
+
+const AUTO_REFRESH_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours in milliseconds
 
 const Markets: React.FC = () => {
-  const { user, farmDetails } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   
-  const [selectedCrop, setSelectedCrop] = useState(farmDetails?.cropType || 'Rice');
-  const [selectedState, setSelectedState] = useState(user?.state || 'Maharashtra');
-  const [prices, setPrices] = useState<MandiPrice[]>([]);
-  const [priceTrend, setPriceTrend] = useState<{ date: string; price: number }[]>([]);
-  const [trendDays, setTrendDays] = useState(7);
+  const [selectedDistrict, setSelectedDistrict] = useState<string>('all');
+  const [selectedMarket, setSelectedMarket] = useState<string>('all');
+  const [selectedCommodity, setSelectedCommodity] = useState<string>('all');
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>({
+    districts: [],
+    markets: [],
+    commodities: [],
+  });
+  
+  const [prices, setPrices] = useState<APMCPrice[]>([]);
   const [targetPrice, setTargetPrice] = useState('');
   const [priceAlertSet, setPriceAlertSet] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [bestMarketRecommendation, setBestMarketRecommendation] = useState('');
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [isLoadingCSV, setIsLoadingCSV] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -47,30 +78,29 @@ const Markets: React.FC = () => {
     }
   }, [user, navigate]);
 
-  useEffect(() => {
-    loadPrices();
-  }, [selectedCrop, selectedState, trendDays]);
-
-  const loadPrices = async () => {
+  const loadPrices = useCallback(async () => {
     setIsLoading(true);
+    setError(null);
+    
     try {
-      const { data, error } = await supabase.functions.invoke('mandi-prices', {
+      const { data, error: fnError } = await supabase.functions.invoke('mandi-prices', {
         body: { 
-          crop: selectedCrop, 
-          state: selectedState,
-          lat: user?.latitude,
-          lon: user?.longitude,
-          days: trendDays
+          district: selectedDistrict,
+          market: selectedMarket,
+          commodity: selectedCommodity,
         }
       });
 
-      if (error) {
-        console.error('Mandi prices error:', error);
-        toast({
-          title: 'Error loading prices',
-          description: 'Could not fetch market prices',
-          variant: 'destructive'
-        });
+      if (fnError) {
+        console.error('Mandi prices error:', fnError);
+        setError('Failed to load market prices. Please try again.');
+        setPrices([]);
+        return;
+      }
+
+      if (data?.error) {
+        setError(data.error);
+        setPrices([]);
         return;
       }
 
@@ -78,25 +108,90 @@ const Markets: React.FC = () => {
         setPrices(data.prices);
       }
 
-      if (data?.priceTrend) {
-        setPriceTrend(data.priceTrend);
+      if (data?.filterOptions) {
+        setFilterOptions(data.filterOptions);
       }
 
       if (data?.bestMarket) {
         setBestMarketRecommendation(data.bestMarket.recommendation);
       }
+
+      if (data?.lastUpdated) {
+        setLastUpdated(data.lastUpdated);
+      }
     } catch (err) {
       console.error('Failed to load prices:', err);
+      setError('Failed to connect to the server. Please check your connection.');
+      setPrices([]);
     } finally {
       setIsLoading(false);
     }
+  }, [selectedDistrict, selectedMarket, selectedCommodity]);
+
+  useEffect(() => {
+    loadPrices();
+  }, [loadPrices]);
+
+  // Auto-refresh every 6 hours
+  useEffect(() => {
+    const interval = setInterval(() => {
+      console.log('Auto-refreshing APMC data...');
+      loadPrices();
+    }, AUTO_REFRESH_INTERVAL);
+
+    return () => clearInterval(interval);
+  }, [loadPrices]);
+
+  const handleLoadCSV = async () => {
+    setIsLoadingCSV(true);
+    setError(null);
+
+    try {
+      // Fetch CSV from public folder
+      const response = await fetch('/data/karnataka-apmc-prices.csv');
+      if (!response.ok) {
+        throw new Error('Failed to fetch CSV file');
+      }
+      
+      const csvContent = await response.text();
+      
+      // Send to edge function
+      const { data, error: fnError } = await supabase.functions.invoke('load-apmc-data', {
+        body: { csvContent }
+      });
+
+      if (fnError) {
+        throw new Error(fnError.message);
+      }
+
+      if (data?.error) {
+        throw new Error(data.error);
+      }
+
+      toast({
+        title: 'CSV Data Loaded',
+        description: data?.message || 'Successfully loaded APMC price data',
+      });
+
+      // Reload prices
+      await loadPrices();
+    } catch (err) {
+      console.error('Failed to load CSV:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load CSV data';
+      setError(errorMessage);
+      toast({
+        title: 'Error Loading CSV',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoadingCSV(false);
+    }
   };
 
-  const bestMarket = prices.length > 0 ? prices.reduce((best, current) => {
-    const bestScore = best.modalPrice - (best.distance || 0) * 10;
-    const currentScore = current.modalPrice - (current.distance || 0) * 10;
-    return currentScore > bestScore ? current : best;
-  }, prices[0]) : null;
+  const bestMarket = prices.length > 0 ? prices.reduce((best, current) => 
+    current.modalPrice > best.modalPrice ? current : best
+  , prices[0]) : null;
 
   const handleSetPriceAlert = async () => {
     if (!targetPrice || isNaN(Number(targetPrice))) {
@@ -108,13 +203,17 @@ const Markets: React.FC = () => {
       return;
     }
 
-    // In a full implementation, this would save to the database
     setPriceAlertSet(true);
     toast({
       title: 'Price alert set!',
-      description: `You'll be notified when ${selectedCrop} reaches ₹${targetPrice}/quintal`,
+      description: `You'll be notified when price reaches ₹${targetPrice}/quintal`,
     });
   };
+
+  // Filter markets based on selected district
+  const availableMarkets = selectedDistrict === 'all' 
+    ? filterOptions.markets 
+    : [...new Set(prices.filter(p => p.district === selectedDistrict).map(p => p.market))];
 
   return (
     <div className="min-h-screen bg-background">
@@ -123,13 +222,54 @@ const Markets: React.FC = () => {
       <main className="lg:ml-72 pt-20 lg:pt-6 pb-8 px-4 lg:px-8">
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-2xl lg:text-3xl font-bold flex items-center gap-2">
-            <TrendingUp className="text-primary" />
-            Market Prices
-            <span className="text-xs bg-success/10 text-success px-2 py-1 rounded-full ml-2">Live Data</span>
-          </h1>
-          <p className="text-muted-foreground">Track mandi prices and find the best market to sell</p>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl lg:text-3xl font-bold flex items-center gap-2">
+                <TrendingUp className="text-primary" />
+                Karnataka APMC Prices
+                <span className="text-xs bg-success/10 text-success px-2 py-1 rounded-full ml-2">Live Data</span>
+              </h1>
+              <p className="text-muted-foreground">Real market prices from Karnataka APMC markets</p>
+              {lastUpdated && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Last updated: {new Date(lastUpdated).toLocaleString()}
+                </p>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={loadPrices}
+                disabled={isLoading}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleLoadCSV}
+                disabled={isLoadingCSV}
+              >
+                {isLoadingCSV ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4 mr-2" />
+                )}
+                Load CSV Data
+              </Button>
+            </div>
+          </div>
         </div>
+
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="destructive" className="mb-6">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
 
         {/* Filters */}
         <div className="agro-card mb-6">
@@ -138,29 +278,48 @@ const Markets: React.FC = () => {
             <span className="font-medium">Filters</span>
             {isLoading && <Loader2 className="animate-spin ml-2" size={16} />}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="text-sm font-medium mb-2 block">Crop</label>
-              <Select value={selectedCrop} onValueChange={setSelectedCrop}>
+              <label className="text-sm font-medium mb-2 block">District</label>
+              <Select value={selectedDistrict} onValueChange={(value) => {
+                setSelectedDistrict(value);
+                setSelectedMarket('all'); // Reset market when district changes
+              }}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="All Districts" />
                 </SelectTrigger>
                 <SelectContent>
-                  {cropTypes.map((c) => (
-                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  <SelectItem value="all">All Districts</SelectItem>
+                  {filterOptions.districts.map((d) => (
+                    <SelectItem key={d} value={d}>{d}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">State</label>
-              <Select value={selectedState} onValueChange={setSelectedState}>
+              <label className="text-sm font-medium mb-2 block">APMC Market</label>
+              <Select value={selectedMarket} onValueChange={setSelectedMarket}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="All Markets" />
                 </SelectTrigger>
                 <SelectContent>
-                  {indianStates.map((s) => (
-                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  <SelectItem value="all">All Markets</SelectItem>
+                  {(selectedDistrict === 'all' ? filterOptions.markets : availableMarkets).map((m) => (
+                    <SelectItem key={m} value={m}>{m}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Commodity</label>
+              <Select value={selectedCommodity} onValueChange={setSelectedCommodity}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Commodities" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Commodities</SelectItem>
+                  {filterOptions.commodities.map((c) => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -170,20 +329,20 @@ const Markets: React.FC = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Best Market Recommendation */}
-          {bestMarket && (
+          {bestMarket && !error && (
             <div className="lg:col-span-3">
               <div className="agro-card bg-gradient-to-r from-primary/10 via-primary/5 to-accent/10 border-2 border-primary/20">
                 <div className="flex items-center gap-3 mb-4">
                   <Star className="text-accent fill-accent" size={28} />
                   <div>
-                    <h2 className="text-xl font-bold">Best Market to Sell Today</h2>
-                    <p className="text-muted-foreground">Based on price and distance analysis</p>
+                    <h2 className="text-xl font-bold">Best Price Today</h2>
+                    <p className="text-muted-foreground">Highest modal price in current selection</p>
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-6">
                   <div>
                     <p className="text-2xl font-bold text-primary">{bestMarket.market}</p>
-                    <p className="text-muted-foreground">{bestMarket.district}, {bestMarket.state}</p>
+                    <p className="text-muted-foreground">{bestMarket.district}, Karnataka</p>
                   </div>
                   <div className="flex items-center gap-2 bg-success/10 px-4 py-2 rounded-xl">
                     <TrendingUp className="text-success" size={24} />
@@ -192,9 +351,9 @@ const Markets: React.FC = () => {
                       <p className="text-xs text-muted-foreground">per quintal</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 bg-secondary px-4 py-2 rounded-xl">
-                    <MapPin className="text-muted-foreground" size={20} />
-                    <p className="font-medium">{bestMarket.distance}km away</p>
+                  <div className="bg-secondary px-4 py-2 rounded-xl">
+                    <p className="font-medium">{bestMarket.commodity}</p>
+                    <p className="text-xs text-muted-foreground">{bestMarket.variety}</p>
                   </div>
                 </div>
                 {bestMarketRecommendation && (
@@ -207,18 +366,28 @@ const Markets: React.FC = () => {
           {/* Price List */}
           <div className="lg:col-span-2">
             <div className="agro-card">
-              <h3 className="font-semibold text-lg mb-4">All Markets in {selectedState}</h3>
+              <h3 className="font-semibold text-lg mb-4">
+                Market Prices 
+                <span className="text-sm font-normal text-muted-foreground ml-2">
+                  ({prices.length} results)
+                </span>
+              </h3>
               {isLoading ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="animate-spin" size={32} />
                 </div>
+              ) : prices.length === 0 && !error ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No price data available.</p>
+                  <p className="text-sm mt-2">Click "Load CSV Data" to import Karnataka APMC prices.</p>
+                </div>
               ) : (
-                <div className="space-y-3">
-                  {prices.map((price, index) => (
+                <div className="space-y-3 max-h-[600px] overflow-y-auto">
+                  {prices.map((price) => (
                     <div 
-                      key={index}
+                      key={price.id}
                       className={`flex items-center justify-between p-4 rounded-xl transition-all ${
-                        price.market === bestMarket?.market 
+                        price.id === bestMarket?.id 
                           ? 'bg-primary/10 border-2 border-primary/30' 
                           : 'bg-secondary/50 hover:bg-secondary'
                       }`}
@@ -230,22 +399,23 @@ const Markets: React.FC = () => {
                         <div>
                           <p className="font-semibold flex items-center gap-2">
                             {price.market}
-                            {price.market === bestMarket?.market && (
+                            {price.id === bestMarket?.id && (
                               <span className="text-xs bg-accent text-accent-foreground px-2 py-0.5 rounded-full">
                                 Best
                               </span>
                             )}
                           </p>
                           <p className="text-sm text-muted-foreground">
-                            {price.district} • {price.distance}km
+                            {price.district} • {price.commodity}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {price.variety} • {new Date(price.arrivalDate).toLocaleDateString()}
                           </p>
                         </div>
                       </div>
                       <div className="text-right">
                         <p className="text-xl font-bold text-primary">₹{price.modalPrice}</p>
-                        <p className="text-xs text-muted-foreground">
-                          ₹{price.minPrice} - ₹{price.maxPrice}
-                        </p>
+                        <p className="text-xs text-muted-foreground">per quintal</p>
                       </div>
                     </div>
                   ))}
@@ -256,13 +426,13 @@ const Markets: React.FC = () => {
 
           {/* Price Alert */}
           <div className="lg:col-span-1">
-            <div className="agro-card mb-6">
+            <div className="agro-card">
               <h3 className="font-semibold text-lg mb-4 flex items-center gap-2">
                 <Bell className="text-accent" size={20} />
                 Set Price Alert
               </h3>
               <p className="text-sm text-muted-foreground mb-4">
-                Get notified when {selectedCrop} reaches your target price
+                Get notified when prices reach your target
               </p>
               <div className="space-y-3">
                 <Input
@@ -281,50 +451,16 @@ const Markets: React.FC = () => {
               </div>
             </div>
 
-            {/* Trend Period Selection */}
-            <div className="agro-card">
-              <h3 className="font-semibold text-lg mb-4">Price Trend</h3>
-              <div className="flex gap-2 mb-4">
-                {[7, 15, 30].map((days) => (
-                  <Button
-                    key={days}
-                    variant={trendDays === days ? 'default' : 'secondary'}
-                    size="sm"
-                    onClick={() => setTrendDays(days)}
-                  >
-                    {days} Days
-                  </Button>
-                ))}
-              </div>
-              <div className="h-48">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={priceTrend}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                    <XAxis 
-                      dataKey="date" 
-                      tick={{ fontSize: 10 }}
-                      className="text-muted-foreground"
-                    />
-                    <YAxis 
-                      tick={{ fontSize: 10 }}
-                      className="text-muted-foreground"
-                    />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: 'hsl(var(--card))',
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '8px'
-                      }}
-                    />
-                    <Line 
-                      type="monotone" 
-                      dataKey="price" 
-                      stroke="hsl(var(--primary))" 
-                      strokeWidth={2}
-                      dot={false}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
+            {/* Data Info */}
+            <div className="agro-card mt-6">
+              <h3 className="font-semibold text-lg mb-4">Data Source</h3>
+              <div className="space-y-2 text-sm">
+                <p><span className="text-muted-foreground">Source:</span> Karnataka APMC CSV</p>
+                <p><span className="text-muted-foreground">State:</span> Karnataka</p>
+                <p><span className="text-muted-foreground">Auto-refresh:</span> Every 6 hours</p>
+                {lastUpdated && (
+                  <p><span className="text-muted-foreground">Updated:</span> {new Date(lastUpdated).toLocaleDateString()}</p>
+                )}
               </div>
             </div>
           </div>

@@ -29,3 +29,9 @@ verify_jwt = false
 
 [functions.soil-detector]
 verify_jwt = false
+
+[functions.crop-disease-detector]
+verify_jwt = false
+
+[functions.equipment]
+verify_jwt = false

@@ -12,6 +12,8 @@ import Dashboard from "./pages/Dashboard";
 import Markets from "./pages/Markets";
 import Expenses from "./pages/Expenses";
 import Profile from "./pages/Profile";
+import Equipment from "./pages/Equipment";
+import DiseaseDetection from "./pages/DiseaseDetection";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -32,6 +34,8 @@ const App = () => (
             <Route path="/markets" element={<Markets />} />
             <Route path="/expenses" element={<Expenses />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/equipment" element={<Equipment />} />
+            <Route path="/disease-detection" element={<DiseaseDetection />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

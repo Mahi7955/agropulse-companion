@@ -59,6 +59,68 @@ export type Database = {
         }
         Relationships: []
       }
+      equipment: {
+        Row: {
+          created_at: string
+          daily_price: number
+          description: string | null
+          district: string | null
+          equipment_name: string
+          equipment_type: string
+          id: string
+          image_url: string | null
+          is_available: boolean
+          latitude: number | null
+          longitude: number | null
+          owner_id: string
+          phone_contact: string | null
+          state: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          daily_price: number
+          description?: string | null
+          district?: string | null
+          equipment_name: string
+          equipment_type: string
+          id?: string
+          image_url?: string | null
+          is_available?: boolean
+          latitude?: number | null
+          longitude?: number | null
+          owner_id: string
+          phone_contact?: string | null
+          state?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          daily_price?: number
+          description?: string | null
+          district?: string | null
+          equipment_name?: string
+          equipment_type?: string
+          id?: string
+          image_url?: string | null
+          is_available?: boolean
+          latitude?: number | null
+          longitude?: number | null
+          owner_id?: string
+          phone_contact?: string | null
+          state?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "equipment_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "farmers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       expenses: {
         Row: {
           amount: number

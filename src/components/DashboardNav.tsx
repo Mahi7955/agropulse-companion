@@ -4,11 +4,12 @@ import {
   LayoutDashboard, 
   TrendingUp, 
   Calculator, 
-  Settings, 
   LogOut,
   User,
   Menu,
-  X
+  X,
+  Wrench,
+  Leaf
 } from 'lucide-react';
 import { Button } from './ui/button';
 import Logo from './Logo';
@@ -27,6 +28,8 @@ const DashboardNav: React.FC<DashboardNavProps> = ({ mobileMenuOpen, setMobileMe
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/markets', icon: TrendingUp, label: 'Markets' },
     { path: '/expenses', icon: Calculator, label: 'Expenses' },
+    { path: '/disease-detection', icon: Leaf, label: 'Disease Detection' },
+    { path: '/equipment', icon: Wrench, label: 'Equipment' },
     { path: '/profile', icon: User, label: 'Profile' },
   ];
 
